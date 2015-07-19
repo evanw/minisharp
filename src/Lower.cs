@@ -100,6 +100,64 @@ namespace Shade
 			return new NullReferenceExpression();
 		}
 
+		public void InsertStuffIntoConstructorBody(IType type, ConstructorDeclaration declaration)
+		{
+			var body = declaration.Body;
+			var isEmpty = body.Statements.Count == 0;
+			var insertBefore = body.LBraceToken.NextSibling ?? body.FirstChild;
+			var shouldInsertNewlines = isEmpty || insertBefore is NewLineNode;
+
+			// Lower the ": base()" or ": this()" expression into the constructor body
+			var initializer = declaration.Initializer;
+			var isForward = initializer.ConstructorInitializerType == ConstructorInitializerType.This;
+			if (!initializer.IsNull) {
+				var arguments = new List<Expression>(initializer.Arguments);
+				foreach (var argument in arguments) {
+					argument.Remove();
+				}
+
+				// Add an invocation inside the constructor body
+				var target = isForward ? (Expression)new ThisReferenceExpression() : new BaseReferenceExpression();
+				if (shouldInsertNewlines) {
+					body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
+				}
+				body.InsertChildBefore(insertBefore, new InvocationExpression(target, arguments), BlockStatement.StatementRole);
+			}
+
+			// For constructor forwarding, the base class initializer and all field initializers are in the other constructor
+			if (!isForward) {
+				foreach (var field in type.GetFields(null, GetMemberOptions.IgnoreInheritedMembers)) {
+					VariableInitializer variable;
+					Expression value;
+
+					// Ignore non-instance fields
+					if (field.IsStatic || !input.fields.TryGetValue(field, out variable)) {
+						continue;
+					}
+
+					// Use the initializer if present
+					if (variable.Initializer.IsNull) {
+						value = CreateDefaultValue(field.Type);
+					} else {
+						value = variable.Initializer.Clone();
+					}
+
+					// Add an assignment inside the constructor body
+					if (shouldInsertNewlines) {
+						body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
+					}
+					body.InsertChildBefore(insertBefore, new ExpressionStatement(new AssignmentExpression(
+						new MemberReferenceExpression(new ThisReferenceExpression(),
+							field.Name), value)), BlockStatement.StatementRole);
+				}
+			}
+
+			// Make sure empty bodies have a newline after the last statement
+			if (isEmpty) {
+				body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
+			}
+		}
+
 		public void VisitChildren(AstNode node)
 		{
 			for (AstNode child = node.FirstChild, next = null; child != null; child = next) {
@@ -387,37 +445,12 @@ namespace Shade
 						continue;
 					}
 
-					var declaration = new ConstructorDeclaration();
-					var block = new BlockStatement();
-					block.AddChild(new NewLineNode(), Roles.NewLine);
-
-					foreach (var field in result.Type.GetFields()) {
-						VariableInitializer variable;
-						Expression initializer;
-
-						// Ignore non-instance fields
-						if (field.IsStatic || !input.fields.TryGetValue(field, out variable)) {
-							continue;
-						}
-
-						// Use the initializer if present
-						if (variable.Initializer.IsNull) {
-							initializer = CreateDefaultValue(field.Type);
-						} else {
-							initializer = variable.Initializer;
-							initializer.Remove();
-						}
-
-						// Add an assignment inside the constructor body
-						block.Add(new ExpressionStatement(new AssignmentExpression(
-							new MemberReferenceExpression(new ThisReferenceExpression(),
-								field.Name), initializer)));
-						block.AddChild(new NewLineNode(), Roles.NewLine);
-					}
-
 					// Add the declaration to the tree so it will be emitted
+					var declaration = new ConstructorDeclaration();
+					var body = new BlockStatement();
 					declaration.Name = result.Type.Name;
-					declaration.Body = block;
+					declaration.Body = body;
+					InsertStuffIntoConstructorBody(result.Type, declaration);
 					node.AddChild(declaration, Roles.TypeMemberRole);
 					input.constructors[method] = declaration;
 				}
@@ -591,12 +624,17 @@ namespace Shade
 
 		public void VisitAccessor(Accessor node)
 		{
-			VisitChildren(node);
+			NotSupported(node);
 		}
 
 		public void VisitConstructorDeclaration(ConstructorDeclaration node)
 		{
 			VisitChildren(node);
+
+			var result = resolver.Resolve(node) as MemberResolveResult;
+			if (result != null) {
+				InsertStuffIntoConstructorBody(result.Member.DeclaringType, node);
+			}
 		}
 
 		public void VisitConstructorInitializer(ConstructorInitializer node)
@@ -664,12 +702,20 @@ namespace Shade
 
 		public void VisitPropertyDeclaration(PropertyDeclaration node)
 		{
-			VisitChildren(node);
+			NotSupported(node);
 		}
 
 		public void VisitVariableInitializer(VariableInitializer node)
 		{
 			VisitChildren(node);
+
+			// Generate the default value now
+			if (node.Initializer.IsNull) {
+				var result = resolver.Resolve(node) as MemberResolveResult;
+				if (result != null) {
+					node.Initializer = CreateDefaultValue(result.Member.ReturnType);
+				}
+			}
 		}
 
 		public void VisitFixedFieldDeclaration(FixedFieldDeclaration node)

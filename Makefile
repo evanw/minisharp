@@ -5,6 +5,12 @@ compile: bin/shade.exe
 server: compile
 	mono --debug bin/shade.exe --server
 
+test: bin/test.exe
+	nunit-console bin/test.exe
+
+bin/test.exe: Makefile src/*.cs tests/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
+	mcs -debug src/*.cs tests/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -r:nunit.framework.dll -out:bin/test.exe
+
 bin/shade.exe: Makefile src/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
 	mcs -debug src/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -out:bin/shade.exe
 

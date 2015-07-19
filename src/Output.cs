@@ -30,10 +30,12 @@ namespace Shade
 		public OutputContext(InputContext input)
 		{
 			this.input = input;
+			IndentAmount = "  ";
 		}
 
 		public bool ShouldMinify { get; set; }
 		public bool ShouldMangle { get; set; }
+		public string IndentAmount { get; set; }
 
 		public string Code
 		{
@@ -259,6 +261,23 @@ namespace Shade
 
 			Emit(isFunctionExpression ? ";" + newline : newline);
 			shouldEmitNewline = true;
+
+			// Emit some code to extend the prototype
+			if (method.SymbolKind == SymbolKind.Constructor) {
+				foreach (var baseType in type.DirectBaseTypes) {
+					if (baseType.Kind == TypeKind.Class) {
+						EmitNewlineBeforeDefinition();
+						EmitIndent();
+						if (isPrimaryConstructor) {
+							Emit(type.FullName + ".prototype" + space + '=' + space + "Object.create(" + baseType.FullName + ".prototype);" + newline);
+						} else {
+							Emit(method.FullName + ".prototype" + space + '=' + space + type.FullName + ".prototype;" + newline);
+						}
+						shouldEmitNewline = true;
+						break;
+					}
+				}
+			}
 		}
 
 		private void Emit(string text)
@@ -309,7 +328,7 @@ namespace Shade
 			if (!ShouldMinify) {
 				indentLevel++;
 				if (indentLevel >= indentPool.Count) {
-					indentPool.Add(new string(' ', indentLevel * 2));
+					indentPool.Add(indent + IndentAmount);
 				}
 				indent = indentPool[indentLevel];
 			}
@@ -869,7 +888,13 @@ namespace Shade
 
 			public override object VisitInvocationExpression(InvocationExpression node, Precedence precedence)
 			{
-				node.Target.AcceptVisitor(this, Precedence.Primary);
+				if (node.Target is BaseReferenceExpression) {
+					context.Emit("base");
+				} else if (node.Target is ThisReferenceExpression) {
+					context.Emit("this");
+				} else {
+					node.Target.AcceptVisitor(this, Precedence.Primary);
+				}
 				context.Emit("(");
 				VisitCommaSeparatedExpressions(node, node.Arguments);
 				context.Emit(")");

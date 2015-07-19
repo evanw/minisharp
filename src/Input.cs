@@ -6,7 +6,6 @@ using ICSharpCode.NRefactory.TypeSystem;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using System;
 
 namespace Shade
 {
@@ -179,6 +178,9 @@ namespace Shade
 				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Property) {
 					context.properties[(IProperty)resolved.Member] = node;
 				}
+
+				// Make sure to also record the accessors
+				VisitChildren(node);
 			}
 
 			public override void VisitConstructorDeclaration(ConstructorDeclaration node)
