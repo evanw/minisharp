@@ -141,6 +141,15 @@ namespace MiniSharp
 			return new NullReferenceExpression();
 		}
 
+		private Expression FullReference(ISymbol symbol)
+		{
+			var parent = input.ParentSymbol(symbol);
+			if (parent != null) {
+				return new MemberReferenceExpression(FullReference(parent), symbol.Name);
+			}
+			return new IdentifierExpression(symbol.Name);
+		}
+
 		private void InsertStuffIntoConstructorBody(IType type, ConstructorDeclaration declaration)
 		{
 			var body = declaration.Body;
@@ -297,13 +306,14 @@ namespace MiniSharp
 
 		public void VisitIdentifierExpression(IdentifierExpression node)
 		{
-			// Convert "x" to "this.x"
+			// Make member references explicit
 			var result = resolver.Resolve(node) as MemberResolveResult;
-			if (result != null && result.Member.SymbolKind == SymbolKind.Field && !((IField)result.Member).IsStatic) {
-				var member = new MemberReferenceExpression();
-				member.Target = new ThisReferenceExpression();
-				member.MemberName = node.Identifier;
-				node.ReplaceWith(member);
+			if (result != null && result.Member.SymbolKind == SymbolKind.Field) {
+				if (((IField)result.Member).IsStatic) {
+					node.ReplaceWith(FullReference(result.Member));
+				} else {
+					node.ReplaceWith(new MemberReferenceExpression(new ThisReferenceExpression(), node.Identifier));
+				}
 			}
 		}
 
@@ -315,6 +325,29 @@ namespace MiniSharp
 		public void VisitInvocationExpression(InvocationExpression node)
 		{
 			VisitChildren(node);
+
+			var result = resolver.Resolve(node) as CSharpInvocationResolveResult;
+			if (result != null) {
+				var target = node.Target;
+
+				// Expand extension methods
+				var reference = target as MemberReferenceExpression;
+				if (result.IsExtensionMethodInvocation && reference != null) {
+					var self = reference.Target;
+					self.Remove();
+					target.ReplaceWith(FullReference(result.ReducedMethod.ReducedFrom));
+					node.Arguments.InsertAfter(null, self);
+				}
+
+				// Make member references explicit
+				else if (result.Member.SymbolKind == SymbolKind.Method) {
+					if (((IMethod)result.Member).IsStatic) {
+						target.ReplaceWith(FullReference(result.Member));
+					} else {
+						target.ReplaceWith(new MemberReferenceExpression(new ThisReferenceExpression(), result.Member.Name));
+					}
+				}
+			}
 		}
 
 		public void VisitIsExpression(IsExpression node)

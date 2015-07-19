@@ -10,7 +10,6 @@ namespace MiniSharp
 	{
 		private InputContext input;
 		private Dictionary<ITypeDefinition, IMethod> primaryConstructors = new Dictionary<ITypeDefinition, IMethod>();
-		private Dictionary<ISymbol, ISymbol> parents = new Dictionary<ISymbol, ISymbol>();
 		private List<ITypeDefinition> types = new List<ITypeDefinition>();
 		private List<INamespace> namespaces = new List<INamespace>();
 		private StringBuilder builder = new StringBuilder();
@@ -85,12 +84,10 @@ namespace MiniSharp
 			namespaces.Add(parent);
 
 			foreach (var child in parent.ChildNamespaces) {
-				parents[child] = parent;
 				ScanTypes(child);
 			}
 
 			foreach (var child in parent.Types) {
-				parents[child] = parent;
 				ScanTypes(child);
 			}
 		}
@@ -107,7 +104,6 @@ namespace MiniSharp
 			}
 
 			foreach (var child in parent.NestedTypes) {
-				parents[child] = parent;
 				ScanTypes(child);
 			}
 		}
@@ -121,14 +117,14 @@ namespace MiniSharp
 		{
 			foreach (var symbol in namespaces) {
 				if (symbol.ParentNamespace != null) {
-					Emit(indent + (IsTopLevel(symbol) ? "var " + symbol.Name : symbol.FullName) + space + '=' + space + "{};" + newline);
+					Emit(indent + (input.IsTopLevel(symbol) ? "var " + symbol.Name : symbol.FullName) + space + '=' + space + "{};" + newline);
 					shouldEmitNewline = true;
 				}
 			}
 
 			foreach (var type in types) {
 				if (type.Kind == TypeKind.Enum || type.Kind == TypeKind.Class && type.IsStatic) {
-					Emit(indent + (IsTopLevel(type) ? "var " + type.Name : type.FullName) + space + '=' + space + "{};" + newline);
+					Emit(indent + (input.IsTopLevel(type) ? "var " + type.Name : type.FullName) + space + '=' + space + "{};" + newline);
 					shouldEmitNewline = true;
 				}
 			}
@@ -178,23 +174,12 @@ namespace MiniSharp
 				if (type.Kind == TypeKind.Class) {
 					foreach (var field in type.Fields) {
 						VariableInitializer initializer;
-						if (field.IsStatic && input.fields.TryGetValue(field, out initializer)) {
-							if (IsTopLevel(type)) {
-								EmitNewlineBeforeDefinition();
-								EmitIndent();
-								Emit("var " + field.Name);
-								if (!initializer.Initializer.IsNull) {
-									Emit(space + '=' + space);
-									initializer.Initializer.AcceptVisitor(expressionVisitor, Precedence.Assignment);
-								}
-								Emit(";" + newline);
-							} else if (!initializer.Initializer.IsNull) {
-								EmitNewlineBeforeDefinition();
-								EmitIndent();
-								Emit(field.FullName + space + '=' + space);
-								initializer.Initializer.AcceptVisitor(expressionVisitor, Precedence.Assignment);
-								Emit(";" + newline);
-							}
+						if (field.IsStatic && input.fields.TryGetValue(field, out initializer) && !initializer.Initializer.IsNull) {
+							EmitNewlineBeforeDefinition();
+							EmitIndent();
+							Emit(field.FullName + space + '=' + space);
+							initializer.Initializer.AcceptVisitor(expressionVisitor, Precedence.Assignment);
+							Emit(";" + newline);
 						}
 					}
 				}
@@ -237,7 +222,7 @@ namespace MiniSharp
 			}
 
 			if (isPrimaryConstructor) {
-				if (IsTopLevel(type)) {
+				if (input.IsTopLevel(type)) {
 					Emit(indent + "function " + type.Name + "(");
 					isFunctionExpression = false;
 				} else {
@@ -340,12 +325,6 @@ namespace MiniSharp
 				indentLevel--;
 				indent = indentPool[indentLevel];
 			}
-		}
-
-		private bool IsTopLevel(ISymbol symbol)
-		{
-			ISymbol parent;
-			return parents.TryGetValue(symbol, out parent) && parent.SymbolKind == SymbolKind.Namespace && ((INamespace)parent).ParentNamespace == null;
 		}
 
 		private void EmitComment(Comment comment)

@@ -56,6 +56,9 @@ label {
 
 function post(url, data, callback) {
   var request = new XMLHttpRequest;
+  request.onerror = function() {
+    callback(null);
+  };
   request.onload = function() {
     callback(request.responseText);
   };
@@ -82,7 +85,7 @@ function main() {
         isPending = false;
         if (isOutdated) {
           compile();
-        } else {
+        } else if (result !== null) {
           output.value = result;
         }
       });

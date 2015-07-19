@@ -31,6 +31,7 @@ namespace MiniSharp
 		public ICompilation compilation;
 		public List<Error> diagnostics = new List<Error>();
 		public List<ITypeDefinition> types = new List<ITypeDefinition>();
+		public Dictionary<ISymbol, ISymbol> parents = new Dictionary<ISymbol, ISymbol>();
 		public Dictionary<string, long> timingInMilliseconds = new Dictionary<string, long>();
 		public Dictionary<IMethod, MethodDeclaration> methods = new Dictionary<IMethod, MethodDeclaration>();
 		public Dictionary<IField, VariableInitializer> fields = new Dictionary<IField, VariableInitializer>();
@@ -110,13 +111,34 @@ namespace MiniSharp
 			return builder.ToString();
 		}
 
+		// This is unreasonably hard to do with the NRefactory API
+		public ISymbol ParentSymbol(ISymbol symbol)
+		{
+			ISymbol parent;
+			parents.TryGetValue(symbol, out parent);
+			return parent;
+		}
+
+		public bool IsTopLevel(ISymbol symbol)
+		{
+			return ParentSymbol(symbol) == null;
+		}
+
 		private void ScanTypes(INamespace parent)
 		{
+			var isRoot = parent.ParentNamespace == null;
+
 			foreach (var child in parent.ChildNamespaces) {
+				if (!isRoot) {
+					parents[child] = parent;
+				}
 				ScanTypes(child);
 			}
 
 			foreach (var child in parent.Types) {
+				if (!isRoot) {
+					parents[child] = parent;
+				}
 				ScanTypes(child);
 			}
 		}
@@ -126,7 +148,12 @@ namespace MiniSharp
 			types.Add(parent);
 
 			foreach (var child in parent.NestedTypes) {
+				parents[child] = parent;
 				ScanTypes(child);
+			}
+
+			foreach (var child in parent.Members) {
+				parents[child] = parent;
 			}
 		}
 
@@ -178,9 +205,6 @@ namespace MiniSharp
 				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Property) {
 					context.properties[(IProperty)resolved.Member] = node;
 				}
-
-				// Make sure to also record the accessors
-				VisitChildren(node);
 			}
 
 			public override void VisitConstructorDeclaration(ConstructorDeclaration node)

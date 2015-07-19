@@ -130,4 +130,6 @@ function improveTextareaForCoding(textarea) {
       }
     }
   };
+
+  textarea.spellcheck = false;
 }
