@@ -3,19 +3,45 @@ using ICSharpCode.NRefactory.CSharp;
 using ICSharpCode.NRefactory.PatternMatching;
 using ICSharpCode.NRefactory.Semantics;
 using ICSharpCode.NRefactory.TypeSystem;
+using System.Collections.Generic;
 
 namespace Shade
 {
 	internal class LoweringContext : IAstVisitor
 	{
+		private static KnownTypeCode[] knownTypeCodes = new KnownTypeCode[] {
+			KnownTypeCode.Object,
+			KnownTypeCode.Boolean,
+			KnownTypeCode.Char,
+			KnownTypeCode.SByte,
+			KnownTypeCode.Byte,
+			KnownTypeCode.Int16,
+			KnownTypeCode.UInt16,
+			KnownTypeCode.Int32,
+			KnownTypeCode.UInt32,
+			KnownTypeCode.Int64,
+			KnownTypeCode.UInt64,
+			KnownTypeCode.Single,
+			KnownTypeCode.Double,
+			KnownTypeCode.Decimal,
+			KnownTypeCode.String,
+			KnownTypeCode.Void,
+		};
+
 		private InputContext input;
 		private bool wasSuccessful = true;
 		private CSharpAstResolver resolver;
 		private int nextEnumValue = 0;
+		private Dictionary<IType, KnownTypeCode> knownTypes = new Dictionary<IType, KnownTypeCode>();
 
 		public static bool Lower(InputContext context)
 		{
 			var lowering = new LoweringContext(context);
+
+			// Cache information about important types
+			foreach (var code in knownTypeCodes) {
+				lowering.knownTypes[context.compilation.FindType(code)] = code;
+			}
 
 			// Lower the content in each file (generated code will
 			// need to be inserted into one of these to be lowered)
@@ -30,6 +56,48 @@ namespace Shade
 		private LoweringContext(InputContext input)
 		{
 			this.input = input;
+		}
+
+		// This doesn't handle generic type parameters yet
+		public Expression CreateDefaultValue(IType type)
+		{
+			KnownTypeCode code;
+
+			if (!knownTypes.TryGetValue(type, out code)) {
+				var definition = type.GetDefinition();
+				if (definition != null) {
+					type = definition.EnumUnderlyingType;
+					knownTypes.TryGetValue(type, out code);
+				}
+			}
+
+			switch (code) {
+				case KnownTypeCode.Boolean: {
+					return new PrimitiveExpression(false);
+				}
+
+				case KnownTypeCode.Single: {
+					return new PrimitiveExpression(0.0f);
+				}
+
+				case KnownTypeCode.Double: {
+					return new PrimitiveExpression(0.0);
+				}
+
+				case KnownTypeCode.Char:
+				case KnownTypeCode.SByte:
+				case KnownTypeCode.Byte:
+				case KnownTypeCode.Int16:
+				case KnownTypeCode.UInt16:
+				case KnownTypeCode.Int32:
+				case KnownTypeCode.UInt32:
+				case KnownTypeCode.Int64:
+				case KnownTypeCode.UInt64: {
+					return new PrimitiveExpression(0);
+				}
+			}
+
+			return new NullReferenceExpression();
 		}
 
 		public void VisitChildren(AstNode node)
@@ -103,7 +171,13 @@ namespace Shade
 
 		public void VisitDefaultValueExpression(DefaultValueExpression node)
 		{
-			NotSupported(node);
+			VisitChildren(node);
+
+			// Generate the default value now
+			var result = resolver.Resolve(node.Type) as TypeResolveResult;
+			if (result != null) {
+				node.ReplaceWith(CreateDefaultValue(result.Type));
+			}
 		}
 
 		public void VisitDirectionExpression(DirectionExpression node)
@@ -145,9 +219,7 @@ namespace Shade
 				var expression = (Expression)node.Body;
 				var block = new BlockStatement();
 				expression.ReplaceWith(block);
-				var statement = new ReturnStatement();
-				statement.Expression = expression;
-				block.Add(statement);
+				block.Add(new ReturnStatement(expression));
 			}
 
 			VisitChildren(node);
@@ -306,6 +378,50 @@ namespace Shade
 		{
 			nextEnumValue = 0;
 			VisitChildren(node);
+
+			// Automatically generate constructor bodies
+			var result = resolver.Resolve(node) as TypeResolveResult;
+			if (result != null) {
+				foreach (var method in result.Type.GetConstructors()) {
+					if (!method.IsSynthetic) {
+						continue;
+					}
+
+					var declaration = new ConstructorDeclaration();
+					var block = new BlockStatement();
+					block.AddChild(new NewLineNode(), Roles.NewLine);
+
+					foreach (var field in result.Type.GetFields()) {
+						VariableInitializer variable;
+						Expression initializer;
+
+						// Ignore non-instance fields
+						if (field.IsStatic || !input.fields.TryGetValue(field, out variable)) {
+							continue;
+						}
+
+						// Use the initializer if present
+						if (variable.Initializer.IsNull) {
+							initializer = CreateDefaultValue(field.Type);
+						} else {
+							initializer = variable.Initializer;
+							initializer.Remove();
+						}
+
+						// Add an assignment inside the constructor body
+						block.Add(new ExpressionStatement(new AssignmentExpression(
+							new MemberReferenceExpression(new ThisReferenceExpression(),
+								field.Name), initializer)));
+						block.AddChild(new NewLineNode(), Roles.NewLine);
+					}
+
+					// Add the declaration to the tree so it will be emitted
+					declaration.Name = result.Type.Name;
+					declaration.Body = block;
+					node.AddChild(declaration, Roles.TypeMemberRole);
+					input.constructors[method] = declaration;
+				}
+			}
 		}
 
 		public void VisitUsingAliasDeclaration(UsingAliasDeclaration node)

@@ -29,6 +29,7 @@ namespace Shade
 	{
 		public INamespace root;
 		public List<Input> inputs;
+		public ICompilation compilation;
 		public List<Error> diagnostics = new List<Error>();
 		public List<ITypeDefinition> types = new List<ITypeDefinition>();
 		public Dictionary<string, long> timingInMilliseconds = new Dictionary<string, long>();
@@ -67,7 +68,7 @@ namespace Shade
 
 			// Scan the type system
 			var compiling = Stopwatch.StartNew();
-			var compilation = project.CreateCompilation();
+			compilation = project.CreateCompilation();
 			root = compilation.RootNamespace;
 			ScanTypes(root);
 			timingInMilliseconds["Compiling"] = compiling.ElapsedMilliseconds;

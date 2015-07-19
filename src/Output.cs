@@ -969,6 +969,20 @@ namespace Shade
 				return null;
 			}
 
+			public override object VisitIsExpression(IsExpression node, Precedence precedence)
+			{
+				if (precedence < Precedence.Relational) {
+					context.Emit("(");
+				}
+				node.Expression.AcceptVisitor(this, Precedence.Relational);
+				context.Emit(" instanceof ");
+				node.Type.AcceptVisitor(this, (Precedence)(Precedence.Relational - 1));
+				if (precedence < Precedence.Relational) {
+					context.Emit(")");
+				}
+				return null;
+			}
+
 			public override object VisitIndexerExpression(IndexerExpression node, Precedence precedence)
 			{
 				node.Target.AcceptVisitor(this, Precedence.Primary);
