@@ -10,11 +10,9 @@ namespace MiniSharp
 	internal class LoweringContext : IAstVisitor
 	{
 		private static KnownTypeCode[] knownTypeCodes = new KnownTypeCode[] {
-			KnownTypeCode.Object,
 			KnownTypeCode.Boolean,
-			KnownTypeCode.Single,
 			KnownTypeCode.Double,
-			KnownTypeCode.Decimal,
+			KnownTypeCode.Single,
 			KnownTypeCode.String,
 			KnownTypeCode.Void,
 
@@ -111,6 +109,11 @@ namespace MiniSharp
 			}
 
 			return false;
+		}
+
+		private bool IsFloatingPointTypeCode(KnownTypeCode code)
+		{
+			return code == KnownTypeCode.Single || code == KnownTypeCode.Double;
 		}
 
 		private KnownTypeCode TypeCode(IType type)
@@ -278,12 +281,39 @@ namespace MiniSharp
 		{
 			VisitChildren(node);
 
-			// Implement integer casts
+			// Implement primitive casts
 			var result = resolver.Resolve(node) as ConversionResolveResult;
-			var expression = node.Expression;
-			var needsIntegerCast = result != null && IsIntegerTypeCode(TypeCode(result.Type)) && !IsIntegerTypeCode(TypeCode(resolver.Resolve(expression).Type));
-			expression.Remove();
-			node.ReplaceWith(needsIntegerCast ? new BinaryOperatorExpression(expression, BinaryOperatorType.BitwiseOr, new PrimitiveExpression(0)) : expression);
+			if (result != null) {
+				var expression = node.Expression;
+				var fromType = resolver.Resolve(expression).Type;
+				var isDynamic = fromType == SpecialType.Dynamic;
+				var toCode = TypeCode(result.Type);
+				expression.Remove();
+
+				// Integer cast
+				if (IsIntegerTypeCode(toCode) && (!IsIntegerTypeCode(TypeCode(fromType)) || isDynamic)) {
+					node.ReplaceWith(new BinaryOperatorExpression(expression,
+						BinaryOperatorType.BitwiseOr, new PrimitiveExpression(0)));
+				}
+
+				// Boolean cast
+				else if (isDynamic && toCode == KnownTypeCode.Boolean) {
+					node.ReplaceWith(new UnaryOperatorExpression(
+						UnaryOperatorType.Not, new UnaryOperatorExpression(
+							UnaryOperatorType.Not, expression)));
+				}
+
+				// Floating-point cast
+				else if (isDynamic && IsFloatingPointTypeCode(toCode)) {
+					node.ReplaceWith(new UnaryOperatorExpression(
+						UnaryOperatorType.Plus, expression));
+				}
+
+				// No cast needed
+				else {
+					node.ReplaceWith(expression);
+				}
+			}
 		}
 
 		public void VisitCheckedExpression(CheckedExpression node)

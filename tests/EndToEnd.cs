@@ -211,5 +211,33 @@ enum Foo {}
 })();
 ");
 		}
+
+		[Test]
+		public void DynamicCasting()
+		{
+			Check(
+@"static class Test {
+	static void Fun(dynamic x) {
+		var d = (double)x;
+		var i = (int)x;
+		var f = (Foo)x;
+		var b = (bool)x;
+	}
+}
+
+enum Foo {}
+", @"(function() {
+	var Test = {};
+	var Foo = {};
+
+	Test.Fun = function(x) {
+		var d = +x;
+		var i = x | 0;
+		var f = x | 0;
+		var b = !!x;
+	};
+})();
+");
+		}
 	}
 }
