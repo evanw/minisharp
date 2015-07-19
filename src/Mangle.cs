@@ -176,12 +176,38 @@ namespace MiniSharp
 		{
 			VisitChildren(node);
 
-			// Special-case constant conditions
+			var yes = node.TrueStatement;
+			var no = node.FalseStatement;
 			var constant = BoolConstant(node.Condition);
+
+			// Special-case constant conditions
 			if (constant == true) {
-				node.ReplaceWith(node.TrueStatement); // Inline "if (true)"
+				node.ReplaceWith(yes); // Inline "if (true)"
 			} else if (constant == false) {
-				node.ReplaceWith(node.FalseStatement); // Inline "if (false)"
+				node.ReplaceWith(no); // Inline "if (false)"
+			}
+
+			// Inline single statements
+			else {
+				ReplaceBlockWithSingleStatement(no);
+				if (no.IsNull) {
+					ReplaceBlockWithSingleStatement(yes);
+				}
+
+				// Be careful to avoid the dangling-else issue
+				else {
+					var block = yes as BlockStatement;
+					if (block != null) {
+						var statements = block.Statements;
+						if (statements.Count == 1) {
+							var first = statements.FirstOrNullObject();
+							var ifElse = first as IfElseStatement;
+							if (ifElse == null || !ifElse.FalseStatement.IsNull) {
+								yes.ReplaceWith(first);
+							}
+						}
+					}
+				}
 			}
 		}
 	}
