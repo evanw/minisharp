@@ -6,6 +6,13 @@ using System.Text;
 
 namespace MiniSharp
 {
+	public enum SourceMap
+	{
+		None,
+		Inline,
+		External,
+	}
+
 	public class OutputContext
 	{
 		private InputContext input;
@@ -25,6 +32,7 @@ namespace MiniSharp
 		private List<string> indentPool = new List<string> { "" };
 		private StatementVisitor statementVisitor;
 		private ExpressionVisitor expressionVisitor;
+		private SourceMapGenerator sourceMap = new SourceMapGenerator();
 
 		public OutputContext(InputContext input)
 		{
@@ -35,12 +43,24 @@ namespace MiniSharp
 		public bool ShouldMinify { get; set; }
 		public bool ShouldMangle { get; set; }
 		public string IndentAmount { get; set; }
+		public SourceMap SourceMap { get; set; }
 
 		public string Code
 		{
 			get {
 				GenerateCodeIfNeeded();
 				return builder.ToString();
+			}
+		}
+
+		public string SourceMapCode
+		{
+			get {
+				if (SourceMap != SourceMap.External) {
+					return null;
+				}
+				GenerateCodeIfNeeded();
+				return sourceMap.ToString();
 			}
 		}
 
@@ -74,6 +94,9 @@ namespace MiniSharp
 			EmitVariables();
 			DecreaseIndent();
 			Emit("})();\n");
+			if (SourceMap == SourceMap.Inline) {
+				Emit("//# sourceMappingURL=" + sourceMap.ToURL() + "\n");
+			}
 			input.timingInMilliseconds["Emitting"] = emitting.ElapsedMilliseconds;
 
 			hasGeneratedCode = true;
@@ -111,6 +134,19 @@ namespace MiniSharp
 		private void SortTypes()
 		{
 			// TODO
+		}
+
+		private void AddMapping(AstNode node)
+		{
+			if (SourceMap != SourceMap.None) {
+				var region = node.Region;
+				if (region.BeginLine > 0 && region.BeginColumn > 0) {
+					var original = input.OriginalInput(node);
+					if (original != null) {
+						sourceMap.AddMapping(original, region.BeginLine - 1, region.BeginColumn - 1, line, column);
+					}
+				}
+			}
 		}
 
 		private void EmitNamespaces()
@@ -348,35 +384,6 @@ namespace MiniSharp
 			return false;
 		}
 
-		private void EmitQuotedString(string text)
-		{
-			var singleQuotes = 0;
-			var doubleQuotes = 0;
-			foreach (var c in text) {
-				if (c == '"') doubleQuotes++;
-				else if (c == '\'') singleQuotes++;
-			}
-
-			// Emit the string using substrings of unquoted stuff for speed
-			var quote = singleQuotes <= doubleQuotes ? "'" : "\"";
-			var start = 0;
-			Emit(quote);
-			for (var i = 0; i < text.Length; i++) {
-				var c = text[i];
-				string escape;
-				if (c == quote[0]) escape = "\\" + quote;
-				else if (c == '\\') escape = "\\\\";
-				else if (c == '\t') escape = "\\t";
-				else if (c == '\n') escape = "\\n";
-				else continue;
-				Emit(text.Substring(start, i - start));
-				Emit(escape);
-				start = i + 1;
-			}
-			Emit(text.Substring(start));
-			Emit(quote);
-		}
-
 		private bool NeedsSpaceAfterIdentifier(AstNode node)
 		{
 			if (!ShouldMinify || node is BlockStatement) {
@@ -451,6 +458,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("{");
 				var old = context.builder.Length;
 				context.IncreaseIndent();
@@ -475,6 +483,7 @@ namespace MiniSharp
 				var isFirst = true;
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("var");
 				context.IncreaseIndent();
 
@@ -486,6 +495,7 @@ namespace MiniSharp
 						context.Emit(",");
 						context.EmitWhitespaceBeforeChild(node, variable, Previous.Other);
 					}
+					context.AddMapping(variable);
 					context.Emit(variable.Name);
 					if (!variable.Initializer.IsNull) {
 						context.EmitWhitespaceBeforeChild(variable, variable.AssignToken, Previous.Other);
@@ -503,6 +513,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 
 				if (!node.Expression.IsNull) {
 					context.Emit("return");
@@ -518,6 +529,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("throw");
 				context.EmitWhitespaceBeforeChild(node, node.Expression, Previous.Identifier);
 				node.Expression.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
@@ -529,6 +541,7 @@ namespace MiniSharp
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
 				context.IncreaseIndent();
+				context.AddMapping(node);
 				node.Expression.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
 				context.DecreaseIndent();
 				context.EmitSemicolonAfterStatement();
@@ -538,6 +551,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("if" + context.space + "(");
 				node.Condition.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
 				context.Emit(")");
@@ -554,6 +568,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("while" + context.space + "(");
 				node.Condition.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
 				context.Emit(")");
@@ -564,6 +579,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("do");
 				VisitBlockOrStatement(node, node.EmbeddedStatement, Previous.Identifier);
 				context.EmitWhitespaceBeforeChild(node, node.WhileToken, Previous.Other);
@@ -576,6 +592,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("for" + context.space + "(var " + node.VariableName + " in ");
 				node.InExpression.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
 				context.Emit(")");
@@ -586,6 +603,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("break");
 				context.EmitSemicolonAfterStatement();
 			}
@@ -594,6 +612,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("continue");
 				context.EmitSemicolonAfterStatement();
 			}
@@ -603,6 +622,7 @@ namespace MiniSharp
 				var isFirst = true;
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("for" + context.space + "(");
 				context.IncreaseIndent();
 
@@ -672,6 +692,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("switch" + context.space + "(");
 				node.Expression.AcceptVisitor(context.expressionVisitor, Precedence.Highest);
 				context.Emit(")");
@@ -694,6 +715,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				if (node.Expression.IsNull) {
 					context.Emit("default:");
 				} else {
@@ -737,6 +759,7 @@ namespace MiniSharp
 			{
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("try");
 				context.EmitNewlineBefore(node.TryBlock);
 
@@ -756,6 +779,7 @@ namespace MiniSharp
 			public override void VisitCatchClause(CatchClause node)
 			{
 				context.EmitIndent();
+				context.AddMapping(node);
 				context.Emit("catch" + context.space + "(" + node.VariableName + ")");
 				context.EmitNewlineBefore(node.Body);
 				node.Body.AcceptVisitor(this);
@@ -848,18 +872,21 @@ namespace MiniSharp
 
 			public override object VisitSimpleType(SimpleType node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit(node.Identifier);
 				return null;
 			}
 
 			public override object VisitIdentifierExpression(IdentifierExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit(node.Identifier);
 				return null;
 			}
 
 			public override object VisitMemberReferenceExpression(MemberReferenceExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				if (node.Target is BaseReferenceExpression) {
 					context.Emit("base");
 				} else {
@@ -871,6 +898,7 @@ namespace MiniSharp
 
 			public override object VisitObjectCreateExpression(ObjectCreateExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit("new ");
 				node.Type.AcceptVisitor(this, Precedence.Primary);
 				context.Emit("(");
@@ -881,6 +909,7 @@ namespace MiniSharp
 
 			public override object VisitInvocationExpression(InvocationExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				if (node.Target is BaseReferenceExpression) {
 					context.Emit("base");
 				} else if (node.Target is ThisReferenceExpression) {
@@ -897,10 +926,13 @@ namespace MiniSharp
 			public override object VisitPrimitiveExpression(PrimitiveExpression node, Precedence precedence)
 			{
 				var value = node.Value;
+				context.AddMapping(node);
 				if (value is bool) {
-					context.Emit((bool)value ? "true" : "false");
+					context.Emit(context.ShouldMangle
+						? (bool)value ? "!0" : "!1"
+						: (bool)value ? "true" : "false");
 				} else if (value is string) {
-					context.EmitQuotedString((string)value);
+					context.Emit(((string)value).Quote(QuoteStyle.SingleOrDouble));
 				} else {
 					context.Emit(value.ToString());
 				}
@@ -909,18 +941,21 @@ namespace MiniSharp
 
 			public override object VisitNullReferenceExpression(NullReferenceExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit("null");
 				return null;
 			}
 
 			public override object VisitThisReferenceExpression(ThisReferenceExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit("this");
 				return null;
 			}
 
 			public override object VisitConditionalExpression(ConditionalExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				if (precedence < Precedence.Conditional) {
 					context.Emit("(");
 				}
@@ -938,6 +973,7 @@ namespace MiniSharp
 			public override object VisitUnaryOperatorExpression(UnaryOperatorExpression node, Precedence precedence)
 			{
 				var isPostfix = IsPostfix(node.Operator);
+				context.AddMapping(node);
 				if (precedence < Precedence.Unary) {
 					context.Emit("(");
 				}
@@ -956,6 +992,7 @@ namespace MiniSharp
 
 			public override object VisitAssignmentExpression(AssignmentExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				if (precedence < Precedence.Assignment) {
 					context.Emit("(");
 				}
@@ -973,6 +1010,7 @@ namespace MiniSharp
 			public override object VisitBinaryOperatorExpression(BinaryOperatorExpression node, Precedence precedence)
 			{
 				var self = BinaryOperatorPrecedence(node.Operator);
+				context.AddMapping(node);
 				if (precedence < self) {
 					context.Emit("(");
 				}
@@ -989,6 +1027,7 @@ namespace MiniSharp
 
 			public override object VisitIsExpression(IsExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				if (precedence < Precedence.Relational) {
 					context.Emit("(");
 				}
@@ -1003,6 +1042,7 @@ namespace MiniSharp
 
 			public override object VisitIndexerExpression(IndexerExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				node.Target.AcceptVisitor(this, Precedence.Primary);
 				context.Emit("[");
 				VisitCommaSeparatedExpressions(node, node.Arguments);
@@ -1012,6 +1052,7 @@ namespace MiniSharp
 
 			public override object VisitAnonymousMethodExpression(AnonymousMethodExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit("function(");
 				context.EmitParameters(node.Parameters);
 				context.Emit(")");
@@ -1023,6 +1064,7 @@ namespace MiniSharp
 
 			public override object VisitLambdaExpression(LambdaExpression node, Precedence precedence)
 			{
+				context.AddMapping(node);
 				context.Emit("function(");
 				context.EmitParameters(node.Parameters);
 				context.Emit(")");
@@ -1038,6 +1080,51 @@ namespace MiniSharp
 				node.Expression.AcceptVisitor(this, context.ShouldMinify ? precedence : Precedence.Primary);
 				return null;
 			}
+		}
+	}
+
+	public enum QuoteStyle
+	{
+		Double,
+		Single,
+		SingleOrDouble,
+	}
+
+	public static partial class Globals
+	{
+		public static string Quote(this string text, QuoteStyle style)
+		{
+			// Use whichever quote character is less frequent
+			if (style == QuoteStyle.SingleOrDouble) {
+				var singleQuotes = 0;
+				var doubleQuotes = 0;
+				foreach (var c in text) {
+					if (c == '"') doubleQuotes++;
+					else if (c == '\'') singleQuotes++;
+				}
+				style = singleQuotes <= doubleQuotes ? QuoteStyle.Single : QuoteStyle.Double;
+			}
+
+			// Generate the string using substrings of unquoted stuff for speed
+			var quote = style == QuoteStyle.Single ? "'" : "\"";
+			var builder = new StringBuilder();
+			var start = 0;
+			builder.Append(quote);
+			for (var i = 0; i < text.Length; i++) {
+				var c = text[i];
+				string escape;
+				if (c == quote[0]) escape = "\\" + quote;
+				else if (c == '\\') escape = "\\\\";
+				else if (c == '\t') escape = "\\t";
+				else if (c == '\n') escape = "\\n";
+				else continue;
+				builder.Append(text.Substring(start, i - start));
+				builder.Append(escape);
+				start = i + 1;
+			}
+			builder.Append(text.Substring(start));
+			builder.Append(quote);
+			return builder.ToString();
 		}
 	}
 }

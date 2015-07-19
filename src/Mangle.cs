@@ -5,8 +5,6 @@ namespace MiniSharp
 {
 	internal class ManglingContext : DepthFirstAstVisitor
 	{
-		private List<PrimitiveExpression> boolConstants = new List<PrimitiveExpression>();
-
 		public static void Mangle(InputContext context)
 		{
 			var mangling = new ManglingContext();
@@ -15,14 +13,6 @@ namespace MiniSharp
 			// need to be inserted into one of these to be mangled)
 			foreach (var input in context.inputs) {
 				input.tree.AcceptVisitor(mangling);
-			}
-
-			// Mangle boolean constants afterwards so it doesn't
-			// interfere with checking for "true" and "false" literals
-			foreach (var node in mangling.boolConstants) {
-				if (node.Parent != null && node.Value is bool) {
-					node.ReplaceWith(new UnaryOperatorExpression(UnaryOperatorType.Not, new PrimitiveExpression((bool)node.Value ? 0 : 1)));
-				}
 			}
 		}
 
@@ -112,13 +102,6 @@ namespace MiniSharp
 		{
 			var primitive = node as PrimitiveExpression;
 			return primitive != null && primitive.Value is bool ? (bool)primitive.Value : (bool?)null;
-		}
-
-		public override void VisitPrimitiveExpression(PrimitiveExpression node)
-		{
-			if (node.Value is bool) {
-				boolConstants.Add(node);
-			}
 		}
 
 		public override void VisitBlockStatement(BlockStatement node)

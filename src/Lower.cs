@@ -31,7 +31,8 @@ namespace MiniSharp
 			KnownTypeCode.UInt64,
 		};
 
-		private InputContext input;
+		private Input input;
+		private InputContext context;
 		private bool wasSuccessful = true;
 		private CSharpAstResolver resolver;
 		private int nextEnumValue = 0;
@@ -56,15 +57,16 @@ namespace MiniSharp
 			// need to be inserted into one of these to be lowered)
 			foreach (var input in context.inputs) {
 				lowering.resolver = input.resolver;
+				lowering.input = input;
 				input.tree.AcceptVisitor(lowering);
 			}
 
 			return lowering.wasSuccessful;
 		}
 
-		private LoweringContext(InputContext input)
+		private LoweringContext(InputContext context)
 		{
-			this.input = input;
+			this.context = context;
 		}
 
 		private static AstNode UnparenthesizedParent(AstNode node)
@@ -143,7 +145,7 @@ namespace MiniSharp
 
 		private Expression FullReference(ISymbol symbol)
 		{
-			var parent = input.ParentSymbol(symbol);
+			var parent = context.ParentSymbol(symbol);
 			if (parent != null) {
 				return new MemberReferenceExpression(FullReference(parent), symbol.Name);
 			}
@@ -181,7 +183,7 @@ namespace MiniSharp
 					Expression value;
 
 					// Ignore non-instance fields
-					if (field.IsStatic || !input.fields.TryGetValue(field, out variable)) {
+					if (field.IsStatic || !context.fields.TryGetValue(field, out variable)) {
 						continue;
 					}
 
@@ -210,6 +212,8 @@ namespace MiniSharp
 
 		private void VisitChildren(AstNode node)
 		{
+			context.originalInputs[node] = input;
+
 			for (AstNode child = node.FirstChild, next = null; child != null; child = next) {
 				next = child.NextSibling;
 				child.AcceptVisitor(this);
@@ -218,7 +222,7 @@ namespace MiniSharp
 
 		private void NotSupported(AstNode node)
 		{
-			input.ReportError(node.Region, node.GetType().Name + " is unsupported");
+			context.ReportError(node.Region, node.GetType().Name + " is unsupported");
 			wasSuccessful = false;
 		}
 
@@ -306,6 +310,8 @@ namespace MiniSharp
 
 		public void VisitIdentifierExpression(IdentifierExpression node)
 		{
+			VisitChildren(node);
+
 			// Make member references explicit
 			var result = resolver.Resolve(node) as MemberResolveResult;
 			if (result != null && result.Member.SymbolKind == SymbolKind.Field) {
@@ -386,6 +392,7 @@ namespace MiniSharp
 
 		public void VisitNullReferenceExpression(NullReferenceExpression node)
 		{
+			VisitChildren(node);
 		}
 
 		public void VisitObjectCreateExpression(ObjectCreateExpression node)
@@ -425,6 +432,7 @@ namespace MiniSharp
 
 		public void VisitThisReferenceExpression(ThisReferenceExpression node)
 		{
+			VisitChildren(node);
 		}
 
 		public void VisitTypeOfExpression(TypeOfExpression node)
@@ -535,7 +543,7 @@ namespace MiniSharp
 					declaration.Body = body;
 					InsertStuffIntoConstructorBody(result.Type, declaration);
 					node.AddChild(declaration, Roles.TypeMemberRole);
-					input.constructors[method] = declaration;
+					context.constructors[method] = declaration;
 				}
 			}
 		}

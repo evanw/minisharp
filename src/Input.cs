@@ -31,7 +31,10 @@ namespace MiniSharp
 		public ICompilation compilation;
 		public List<Error> diagnostics = new List<Error>();
 		public List<ITypeDefinition> types = new List<ITypeDefinition>();
+
+		// We can't store stuff on NRefactory types so these maps are the next best thing
 		public Dictionary<ISymbol, ISymbol> parents = new Dictionary<ISymbol, ISymbol>();
+		public Dictionary<AstNode, Input> originalInputs = new Dictionary<AstNode, Input>();
 		public Dictionary<string, long> timingInMilliseconds = new Dictionary<string, long>();
 		public Dictionary<IMethod, MethodDeclaration> methods = new Dictionary<IMethod, MethodDeclaration>();
 		public Dictionary<IField, VariableInitializer> fields = new Dictionary<IField, VariableInitializer>();
@@ -109,6 +112,14 @@ namespace MiniSharp
 					diagnostic.Message);
 			}
 			return builder.ToString();
+		}
+
+		// This is unreasonably expensive with the NRefactory API (walks up to the root every time)
+		public Input OriginalInput(AstNode node)
+		{
+			Input input;
+			originalInputs.TryGetValue(node, out input);
+			return input;
 		}
 
 		// This is unreasonably hard to do with the NRefactory API

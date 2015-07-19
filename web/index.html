@@ -34,16 +34,7 @@ label {
 
 </style>
 <section>
-  <div id="options">
-    <label>
-      <input type="checkbox" id="minify">
-      Minify
-    </label>
-    <label>
-      <input type="checkbox" id="mangle">
-      Mangle
-    </label>
-  </div>
+  <div id="options"></div>
   <h2>Input</h2>
   <textarea id="input" autofocus></textarea>
 </section>
@@ -67,21 +58,29 @@ function post(url, data, callback) {
 }
 
 function main() {
-  var input = document.getElementById('input');
-  var output = document.getElementById('output');
-  var minify = document.getElementById('minify');
-  var mangle = document.getElementById('mangle');
-  var isPending = false;
-  var isOutdated = false;
+  function option(text) {
+    var label = document.createElement('label');
+    label.innerHTML = '<input type="checkbox" id="' + text + '"> ' + text;
+    var input = label.firstChild;
+    input.checked = localStorage[text] === 'true';
+    input.onchange = function() {
+      localStorage[text] = input.checked;
+      compile();
+    };
+    options.appendChild(label);
+    return input;
+  }
 
   function compile() {
     localStorage.input = input.value;
-    localStorage.minify = minify.checked;
-    localStorage.mangle = mangle.checked;
     if (isPending) {
       isOutdated = true;
     } else {
-      post('http://' + location.hostname + ':8008/?minify=' + minify.checked + '&mangle=' + mangle.checked, input.value, function(result) {
+      var url = 'http://' + location.hostname + ':8008/' +
+        '?minify=' + minify.checked +
+        '&mangle=' + mangle.checked +
+        '&sourceMap=' + sourceMap.checked;
+      post(url, input.value, function(result) {
         isPending = false;
         if (isOutdated) {
           compile();
@@ -93,15 +92,19 @@ function main() {
     }
   }
 
+  var input = document.getElementById('input');
+  var output = document.getElementById('output');
+  var minify = option('Minify');
+  var mangle = option('Mangle');
+  var sourceMap = option('Source Map');
+  var isPending = false;
+  var isOutdated = false;
+
   improveTextareaForCoding(input);
   input.value = localStorage.input || '';
   input.selectionStart = 0;
   input.selectionEnd = 0;
-  minify.checked = localStorage.minify === 'true';
-  mangle.checked = localStorage.mangle === 'true';
   input.oninput = compile;
-  minify.onchange = compile;
-  mangle.onchange = compile;
   compile();
 }
 

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Text;
 using System;
 
 namespace MiniSharp
@@ -14,6 +15,7 @@ namespace MiniSharp
 				{ "--mangle", false },
 				{ "--timing", false },
 				{ "--server", false },
+				{ "--source-map", false },
 			};
 			string outputPath = null;
 
@@ -84,8 +86,12 @@ namespace MiniSharp
 			var output = new OutputContext(context);
 			output.ShouldMinify = boolFlags["--minify"];
 			output.ShouldMangle = boolFlags["--mangle"];
+			output.SourceMap = boolFlags["--source-map"] ? outputPath != null ? SourceMap.External : SourceMap.Inline : SourceMap.None;
 			if (outputPath != null) {
 				File.WriteAllText(outputPath, output.Code);
+				if (output.SourceMap == SourceMap.External) {
+					File.WriteAllText(outputPath + ".map", output.SourceMapCode);
+				}
 			} else {
 				Console.Write(output.Code);
 			}
@@ -128,13 +134,14 @@ namespace MiniSharp
 						var output = new OutputContext(input);
 						output.ShouldMinify = request.QueryString["minify"] == "true";
 						output.ShouldMangle = request.QueryString["mangle"] == "true";
+						output.SourceMap = request.QueryString["sourceMap"] == "true" ? SourceMap.Inline : SourceMap.None;
 						responseText = output.Code;
 					}
 				} catch (Exception error) {
 					responseText = error.Message + "\n" + error.StackTrace;
 				}
 
-				var buffer = System.Text.Encoding.UTF8.GetBytes(responseText);
+				var buffer = Encoding.UTF8.GetBytes(responseText);
 				response.Headers["Access-Control-Allow-Origin"] = "*";
 				response.ContentLength64 = buffer.Length;
 				response.OutputStream.Write(buffer, 0, buffer.Length);
@@ -151,6 +158,7 @@ usage: shade.exe [options] [inputs] [-o output]
     --mangle        Apply syntax transformations to shrink output.
     -o, --output    Specify the output path (defaults to stdout).
     --timing        Report timing information for debugging.
+    --source-map    Generate a source map along side the output.
     --server        Run a local HTTP service over port 8008.
 ");
 		}
