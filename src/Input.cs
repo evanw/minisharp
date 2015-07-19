@@ -5,6 +5,7 @@ using ICSharpCode.NRefactory.Semantics;
 using ICSharpCode.NRefactory.TypeSystem;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using System;
 
 namespace Shade
@@ -95,16 +96,18 @@ namespace Shade
 			diagnostics.Add(new Error(ErrorType.Error, message, region));
 		}
 
-		public void WriteLogToConsole()
+		public string GenerateLog()
 		{
+			var builder = new StringBuilder();
 			foreach (var diagnostic in diagnostics) {
-				Console.WriteLine("{0}({1},{2}): {3}: {4}",
+				builder.AppendFormat("{0}({1},{2}): {3}: {4}\n",
 					diagnostic.Region.FileName,
 					diagnostic.Region.BeginLine + 1,
 					diagnostic.Region.BeginColumn + 1,
 					diagnostic.ErrorType == ErrorType.Warning ? "warning" : "error",
 					diagnostic.Message);
 			}
+			return builder.ToString();
 		}
 
 		private void ScanTypes(INamespace parent)
@@ -140,7 +143,7 @@ namespace Shade
 			public override void VisitVariableInitializer(VariableInitializer node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Field) {
 					context.fields[(IField)resolved.Member] = node;
 				}
 			}
@@ -148,7 +151,7 @@ namespace Shade
 			public override void VisitMethodDeclaration(MethodDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Method) {
 					context.methods[(IMethod)resolved.Member] = node;
 				}
 			}
@@ -156,7 +159,7 @@ namespace Shade
 			public override void VisitIndexerDeclaration(IndexerDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Indexer) {
 					context.indexers[(IProperty)resolved.Member] = node;
 				}
 			}
@@ -164,7 +167,7 @@ namespace Shade
 			public override void VisitOperatorDeclaration(OperatorDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Operator) {
 					context.operators[(IMethod)resolved.Member] = node;
 				}
 			}
@@ -172,7 +175,7 @@ namespace Shade
 			public override void VisitPropertyDeclaration(PropertyDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Property) {
 					context.properties[(IProperty)resolved.Member] = node;
 				}
 			}
@@ -180,7 +183,7 @@ namespace Shade
 			public override void VisitConstructorDeclaration(ConstructorDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Constructor) {
 					context.constructors[(IMethod)resolved.Member] = node;
 				}
 			}
@@ -188,7 +191,7 @@ namespace Shade
 			public override void VisitEnumMemberDeclaration(EnumMemberDeclaration node)
 			{
 				var resolved = resolver.Resolve(node) as MemberResolveResult;
-				if (resolved != null) {
+				if (resolved != null && resolved.Member.SymbolKind == SymbolKind.Field) {
 					context.enums[(IField)resolved.Member] = node;
 				}
 			}

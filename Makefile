@@ -2,6 +2,9 @@ default: compile
 
 compile: bin/shade.exe
 
+server: compile
+	mono --debug bin/shade.exe --server
+
 bin/shade.exe: Makefile src/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
 	mcs -debug src/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -out:bin/shade.exe
 

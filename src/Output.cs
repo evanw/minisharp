@@ -440,10 +440,13 @@ namespace Shade
 				context.EmitSemicolonIfNeeded();
 				context.EmitIndent();
 				context.Emit("{");
+				var old = context.builder.Length;
 				context.IncreaseIndent();
 				VisitChildren(node);
 				context.DecreaseIndent();
-				context.EmitIndent();
+				if (context.builder.Length != old) {
+					context.EmitIndent();
+				}
 				context.Emit("}");
 				context.shouldEmitSemicolon = false;
 			}

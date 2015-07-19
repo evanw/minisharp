@@ -1,0 +1,102 @@
+<style>
+
+body {
+  text-align: center;
+  font: 14px sans-serif;
+}
+
+h2 {
+  text-align: left;
+}
+
+textarea {
+  width: 100%;
+  height: 600px;
+  font: 14px monospace;
+}
+
+section {
+  width: 40%;
+  display: inline-block;
+  margin: 20px;
+}
+
+#options {
+  float: right;
+}
+
+label {
+  margin-left: 20px;
+  margin-top: 20px;
+  float: left;
+}
+
+</style>
+<section>
+  <div id="options">
+    <label>
+      <input type="checkbox" id="minify">
+      Minify
+    </label>
+    <label>
+      <input type="checkbox" id="mangle">
+      Mangle
+    </label>
+  </div>
+  <h2>Input</h2>
+  <textarea id="input" autofocus></textarea>
+</section>
+<section>
+  <h2>Output</h2>
+  <textarea id="output" readonly></textarea>
+</section>
+<script>
+
+function post(url, data, callback) {
+  var request = new XMLHttpRequest;
+  request.onload = function() {
+    callback(request.responseText);
+  };
+  request.open('POST', url);
+  request.send(data);
+}
+
+function main() {
+  var input = document.getElementById('input');
+  var output = document.getElementById('output');
+  var minify = document.getElementById('minify');
+  var mangle = document.getElementById('mangle');
+  var isPending = false;
+  var isOutdated = false;
+
+  function compile() {
+    localStorage.input = input.value;
+    localStorage.minify = minify.checked;
+    localStorage.mangle = mangle.checked;
+    if (isPending) {
+      isOutdated = true;
+    } else {
+      post('http://' + location.hostname + ':8008/?minify=' + minify.checked + '&mangle=' + mangle.checked, input.value, function(result) {
+        isPending = false;
+        if (isOutdated) {
+          compile();
+        } else {
+          output.value = result;
+        }
+      });
+      isPending = true;
+    }
+  }
+
+  input.value = localStorage.input || '';
+  minify.checked = localStorage.minify === 'true';
+  mangle.checked = localStorage.mangle === 'true';
+  input.oninput = compile;
+  minify.onchange = compile;
+  mangle.onchange = compile;
+  compile();
+}
+
+main();
+
+</script>
