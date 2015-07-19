@@ -179,5 +179,37 @@ namespace NS2 {
 })();
 ");
 		}
+
+		[Test]
+		public void Casting()
+		{
+			Check(
+@"static class Test {
+	static void Fun(double d, int i, Foo f) {
+		var i2d = (double)i;
+		var d2i = (int)d;
+		var i2f = (Foo)i;
+		var f2i = (int)f;
+		var d2f = (Foo)d;
+		var f2d = (double)f;
+	}
+}
+
+enum Foo {}
+", @"(function() {
+	var Test = {};
+	var Foo = {};
+
+	Test.Fun = function(d, i, f) {
+		var i2d = i;
+		var d2i = d | 0;
+		var i2f = i;
+		var f2i = f;
+		var d2f = d | 0;
+		var f2d = f;
+	};
+})();
+");
+		}
 	}
 }

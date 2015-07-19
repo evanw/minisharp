@@ -171,16 +171,20 @@ namespace MiniSharp
 			foreach (var type in types) {
 				switch (type.Kind) {
 					case TypeKind.Enum: {
-						EmitNewlineBeforeDefinition();
+						var isFirst = true;
 						foreach (var field in type.Fields) {
 							EnumMemberDeclaration initializer;
+							if (isFirst) {
+								isFirst = false;
+								EmitNewlineBeforeDefinition();
+							}
 							Emit(indent + field.FullName + space + '=' + space);
 							if (input.enums.TryGetValue(field, out initializer) && initializer.Initializer != null) {
 								initializer.Initializer.AcceptVisitor(expressionVisitor, Precedence.Highest);
 							}
 							Emit(";" + newline);
+							shouldEmitNewline = true;
 						}
-						shouldEmitNewline = true;
 						break;
 					}
 

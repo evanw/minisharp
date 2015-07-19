@@ -17,9 +17,8 @@ namespace MiniSharp
 			KnownTypeCode.Decimal,
 			KnownTypeCode.String,
 			KnownTypeCode.Void,
-		};
 
-		private static KnownTypeCode[] knownIntegerTypeCodes = new KnownTypeCode[] {
+			// Integer types
 			KnownTypeCode.Char,
 			KnownTypeCode.SByte,
 			KnownTypeCode.Byte,
@@ -37,7 +36,6 @@ namespace MiniSharp
 		private CSharpAstResolver resolver;
 		private int nextEnumValue = 0;
 		private Dictionary<IType, KnownTypeCode> knownTypes = new Dictionary<IType, KnownTypeCode>();
-		private Dictionary<IType, KnownTypeCode> knownIntegerTypes = new Dictionary<IType, KnownTypeCode>();
 
 		public static bool Lower(InputContext context)
 		{
@@ -46,11 +44,6 @@ namespace MiniSharp
 			// Cache information about important types
 			foreach (var code in knownTypeCodes) {
 				lowering.knownTypes[context.compilation.FindType(code)] = code;
-			}
-			foreach (var code in knownIntegerTypeCodes) {
-				var type = context.compilation.FindType(code);
-				lowering.knownTypes[type] = code;
-				lowering.knownIntegerTypes[type] = code;
 			}
 
 			// Lower the content in each file (generated code will
@@ -101,32 +94,9 @@ namespace MiniSharp
 			return false;
 		}
 
-		// This doesn't handle generic type parameters yet
-		private Expression CreateDefaultValue(IType type)
+		private bool IsIntegerTypeCode(KnownTypeCode code)
 		{
-			KnownTypeCode code;
-
-			if (!knownTypes.TryGetValue(type, out code)) {
-				var definition = type.GetDefinition();
-				if (definition != null) {
-					type = definition.EnumUnderlyingType;
-					knownTypes.TryGetValue(type, out code);
-				}
-			}
-
 			switch (code) {
-				case KnownTypeCode.Boolean: {
-					return new PrimitiveExpression(false);
-				}
-
-				case KnownTypeCode.Single: {
-					return new PrimitiveExpression(0.0f);
-				}
-
-				case KnownTypeCode.Double: {
-					return new PrimitiveExpression(0.0);
-				}
-
 				case KnownTypeCode.Char:
 				case KnownTypeCode.SByte:
 				case KnownTypeCode.Byte:
@@ -136,11 +106,38 @@ namespace MiniSharp
 				case KnownTypeCode.UInt32:
 				case KnownTypeCode.Int64:
 				case KnownTypeCode.UInt64: {
-					return new PrimitiveExpression(0);
+					return true;
 				}
 			}
 
-			return new NullReferenceExpression();
+			return false;
+		}
+
+		private KnownTypeCode TypeCode(IType type)
+		{
+			KnownTypeCode code;
+			if (!knownTypes.TryGetValue(type, out code)) {
+				var definition = type.GetDefinition();
+				if (definition != null) {
+					type = definition.EnumUnderlyingType;
+					knownTypes.TryGetValue(type, out code);
+				}
+			}
+			return code;
+		}
+
+		// This doesn't handle generic type parameters yet
+		private Expression CreateDefaultValue(IType type)
+		{
+			var code = TypeCode(type);
+
+			switch (code) {
+				case KnownTypeCode.Boolean: return new PrimitiveExpression(false);
+				case KnownTypeCode.Single: return new PrimitiveExpression(0.0f);
+				case KnownTypeCode.Double: return new PrimitiveExpression(0.0);
+			}
+
+			return IsIntegerTypeCode(code) ? (Expression)new PrimitiveExpression(0) : new NullReferenceExpression();
 		}
 
 		private Expression FullReference(ISymbol symbol)
@@ -269,7 +266,7 @@ namespace MiniSharp
 			// This allows JavaScript JITs to omit overflow deoptimizations.
 			if (!WillConvertOperandsToIntegers(node) && !WillConvertOperandsToIntegers(UnparenthesizedParent(node))) {
 				var result = resolver.Resolve(node) as OperatorResolveResult;
-				if (result != null && knownIntegerTypes.ContainsKey(result.Type)) {
+				if (result != null && IsIntegerTypeCode(TypeCode(result.Type))) {
 					var temp = new NullReferenceExpression();
 					node.ReplaceWith(temp);
 					temp.ReplaceWith(new BinaryOperatorExpression(node, BinaryOperatorType.BitwiseOr, new PrimitiveExpression(0)));
@@ -280,6 +277,13 @@ namespace MiniSharp
 		public void VisitCastExpression(CastExpression node)
 		{
 			VisitChildren(node);
+
+			// Implement integer casts
+			var result = resolver.Resolve(node) as ConversionResolveResult;
+			var expression = node.Expression;
+			var needsIntegerCast = result != null && IsIntegerTypeCode(TypeCode(result.Type)) && !IsIntegerTypeCode(TypeCode(resolver.Resolve(expression).Type));
+			expression.Remove();
+			node.ReplaceWith(needsIntegerCast ? new BinaryOperatorExpression(expression, BinaryOperatorType.BitwiseOr, new PrimitiveExpression(0)) : expression);
 		}
 
 		public void VisitCheckedExpression(CheckedExpression node)
