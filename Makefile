@@ -1,9 +1,9 @@
 default: compile
 
-compile: bin/shade.exe
+compile: bin/minisharp.exe
 
 server: compile
-	mono --debug bin/shade.exe --server
+	mono --debug bin/minisharp.exe --server
 
 test: bin/test.exe
 	nunit-console bin/test.exe
@@ -11,8 +11,8 @@ test: bin/test.exe
 bin/test.exe: Makefile src/*.cs tests/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
 	mcs -debug src/*.cs tests/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -r:nunit.framework.dll -out:bin/test.exe
 
-bin/shade.exe: Makefile src/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
-	mcs -debug src/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -out:bin/shade.exe
+bin/minisharp.exe: Makefile src/*.cs bin/ICSharpCode.NRefactory.dll bin/ICSharpCode.NRefactory.CSharp.dll
+	mcs -debug src/*.cs -r:bin/ICSharpCode.NRefactory.dll -r:bin/ICSharpCode.NRefactory.CSharp.dll -out:bin/minisharp.exe
 
 bin/ICSharpCode.NRefactory.dll:
 	make unzip
@@ -33,7 +33,7 @@ bin:
 	mkdir -p bin
 
 clean:
-	rm -fr bin/shade.exe*
+	rm -fr bin/minisharp.exe*
 
 reset:
 	rm -fr bin

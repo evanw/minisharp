@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 
-namespace Shade
+namespace MiniSharp
 {
 	public class Input
 	{

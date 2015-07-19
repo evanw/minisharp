@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 
-namespace Shade
+namespace MiniSharp
 {
 	public class OutputContext
 	{
@@ -30,7 +30,7 @@ namespace Shade
 		public OutputContext(InputContext input)
 		{
 			this.input = input;
-			IndentAmount = "  ";
+			IndentAmount = "\t";
 		}
 
 		public bool ShouldMinify { get; set; }
@@ -390,7 +390,7 @@ namespace Shade
 				else if (c == '\t') escape = "\\t";
 				else if (c == '\n') escape = "\\n";
 				else continue;
-				Emit(text.Substring(start, i));
+				Emit(text.Substring(start, i - start));
 				Emit(escape);
 				start = i + 1;
 			}
@@ -400,7 +400,16 @@ namespace Shade
 
 		private bool NeedsSpaceAfterIdentifier(AstNode node)
 		{
-			return ShouldMinify && !(node is BlockStatement);
+			if (!ShouldMinify || node is BlockStatement) {
+				return false;
+			}
+
+			var unary = node as UnaryOperatorExpression;
+			if (unary != null) {
+				return IsPostfix(unary.Operator);
+			}
+
+			return true;
 		}
 
 		private enum Previous
@@ -416,6 +425,11 @@ namespace Shade
 			} else {
 				EmitIndent();
 			}
+		}
+
+		private static bool IsPostfix(UnaryOperatorType type)
+		{
+			return type == UnaryOperatorType.PostDecrement || type == UnaryOperatorType.PostIncrement;
 		}
 
 		private class StatementVisitor : DepthFirstAstVisitor
@@ -944,7 +958,7 @@ namespace Shade
 
 			public override object VisitUnaryOperatorExpression(UnaryOperatorExpression node, Precedence precedence)
 			{
-				var isPostfix = node.Operator == UnaryOperatorType.PostIncrement || node.Operator == UnaryOperatorType.PostDecrement;
+				var isPostfix = IsPostfix(node.Operator);
 				if (precedence < Precedence.Unary) {
 					context.Emit("(");
 				}

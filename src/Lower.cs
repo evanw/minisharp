@@ -5,13 +5,21 @@ using ICSharpCode.NRefactory.Semantics;
 using ICSharpCode.NRefactory.TypeSystem;
 using System.Collections.Generic;
 
-namespace Shade
+namespace MiniSharp
 {
 	internal class LoweringContext : IAstVisitor
 	{
 		private static KnownTypeCode[] knownTypeCodes = new KnownTypeCode[] {
 			KnownTypeCode.Object,
 			KnownTypeCode.Boolean,
+			KnownTypeCode.Single,
+			KnownTypeCode.Double,
+			KnownTypeCode.Decimal,
+			KnownTypeCode.String,
+			KnownTypeCode.Void,
+		};
+
+		private static KnownTypeCode[] knownIntegerTypeCodes = new KnownTypeCode[] {
 			KnownTypeCode.Char,
 			KnownTypeCode.SByte,
 			KnownTypeCode.Byte,
@@ -21,11 +29,6 @@ namespace Shade
 			KnownTypeCode.UInt32,
 			KnownTypeCode.Int64,
 			KnownTypeCode.UInt64,
-			KnownTypeCode.Single,
-			KnownTypeCode.Double,
-			KnownTypeCode.Decimal,
-			KnownTypeCode.String,
-			KnownTypeCode.Void,
 		};
 
 		private InputContext input;
@@ -33,6 +36,7 @@ namespace Shade
 		private CSharpAstResolver resolver;
 		private int nextEnumValue = 0;
 		private Dictionary<IType, KnownTypeCode> knownTypes = new Dictionary<IType, KnownTypeCode>();
+		private Dictionary<IType, KnownTypeCode> knownIntegerTypes = new Dictionary<IType, KnownTypeCode>();
 
 		public static bool Lower(InputContext context)
 		{
@@ -41,6 +45,11 @@ namespace Shade
 			// Cache information about important types
 			foreach (var code in knownTypeCodes) {
 				lowering.knownTypes[context.compilation.FindType(code)] = code;
+			}
+			foreach (var code in knownIntegerTypeCodes) {
+				var type = context.compilation.FindType(code);
+				lowering.knownTypes[type] = code;
+				lowering.knownIntegerTypes[type] = code;
 			}
 
 			// Lower the content in each file (generated code will
@@ -58,8 +67,40 @@ namespace Shade
 			this.input = input;
 		}
 
+		private static AstNode UnparenthesizedParent(AstNode node)
+		{
+			do {
+				node = node.Parent;
+			} while (node is ParenthesizedExpression);
+			return node;
+		}
+
+		private static bool WillConvertOperandsToIntegers(AstNode node)
+		{
+			var binary = node as BinaryOperatorExpression;
+			if (binary != null) {
+				switch (binary.Operator) {
+					case BinaryOperatorType.BitwiseAnd:
+					case BinaryOperatorType.BitwiseOr:
+					case BinaryOperatorType.ExclusiveOr:
+					case BinaryOperatorType.ShiftLeft:
+					case BinaryOperatorType.ShiftRight: {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			var unary = node as UnaryOperatorExpression;
+			if (unary != null && unary.Operator == UnaryOperatorType.BitNot) {
+				return true;
+			}
+
+			return false;
+		}
+
 		// This doesn't handle generic type parameters yet
-		public Expression CreateDefaultValue(IType type)
+		private Expression CreateDefaultValue(IType type)
 		{
 			KnownTypeCode code;
 
@@ -100,7 +141,7 @@ namespace Shade
 			return new NullReferenceExpression();
 		}
 
-		public void InsertStuffIntoConstructorBody(IType type, ConstructorDeclaration declaration)
+		private void InsertStuffIntoConstructorBody(IType type, ConstructorDeclaration declaration)
 		{
 			var body = declaration.Body;
 			var isEmpty = body.Statements.Count == 0;
@@ -158,7 +199,7 @@ namespace Shade
 			}
 		}
 
-		public void VisitChildren(AstNode node)
+		private void VisitChildren(AstNode node)
 		{
 			for (AstNode child = node.FirstChild, next = null; child != null; child = next) {
 				next = child.NextSibling;
@@ -166,7 +207,7 @@ namespace Shade
 			}
 		}
 
-		public void NotSupported(AstNode node)
+		private void NotSupported(AstNode node)
 		{
 			input.ReportError(node.Region, node.GetType().Name + " is unsupported");
 			wasSuccessful = false;
@@ -210,6 +251,17 @@ namespace Shade
 		public void VisitBinaryOperatorExpression(BinaryOperatorExpression node)
 		{
 			VisitChildren(node);
+
+			// Force certain operations on integers to stay integers afterwards.
+			// This allows JavaScript JITs to omit overflow deoptimizations.
+			if (!WillConvertOperandsToIntegers(node) && !WillConvertOperandsToIntegers(UnparenthesizedParent(node))) {
+				var result = resolver.Resolve(node) as OperatorResolveResult;
+				if (result != null && knownIntegerTypes.ContainsKey(result.Type)) {
+					var temp = new NullReferenceExpression();
+					node.ReplaceWith(temp);
+					temp.ReplaceWith(new BinaryOperatorExpression(node, BinaryOperatorType.BitwiseOr, new PrimitiveExpression(0)));
+				}
+			}
 		}
 
 		public void VisitCastExpression(CastExpression node)
@@ -414,12 +466,10 @@ namespace Shade
 
 		public void VisitAttribute(ICSharpCode.NRefactory.CSharp.Attribute node)
 		{
-			NotSupported(node);
 		}
 
 		public void VisitAttributeSection(AttributeSection node)
 		{
-			NotSupported(node);
 		}
 
 		public void VisitDelegateDeclaration(DelegateDeclaration node)

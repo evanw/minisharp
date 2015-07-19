@@ -1,7 +1,7 @@
 using NUnit.Framework;
 using System.Collections.Generic;
 
-namespace Shade.Tests
+namespace MiniSharp.Tests
 {
 	[TestFixture]
 	public class EndToEnd

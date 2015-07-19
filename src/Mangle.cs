@@ -1,7 +1,7 @@
 using ICSharpCode.NRefactory.CSharp;
 using System.Collections.Generic;
 
-namespace Shade
+namespace MiniSharp
 {
 	internal class ManglingContext : DepthFirstAstVisitor
 	{

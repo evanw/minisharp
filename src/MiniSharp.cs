@@ -3,7 +3,7 @@ using System.IO;
 using System.Net;
 using System;
 
-namespace Shade
+namespace MiniSharp
 {
 	public class Compiler
 	{
