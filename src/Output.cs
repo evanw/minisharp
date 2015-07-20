@@ -30,6 +30,7 @@ namespace MiniSharp
 		private string newline = "\n";
 		private int indentLevel = 0;
 		private List<string> indentPool = new List<string> { "" };
+		private ITypeDefinition currentType;
 		private StatementVisitor statementVisitor;
 		private ExpressionVisitor expressionVisitor;
 		private SourceMapGenerator sourceMap = new SourceMapGenerator();
@@ -133,12 +134,8 @@ namespace MiniSharp
 
 		private static bool HasBaseClass(IType derivedClass, IType definition)
 		{
-			foreach (var type in derivedClass.DirectBaseTypes) {
-				if (type.GetDefinition() == definition || type.Kind == TypeKind.Class && HasBaseClass(type, definition)) {
-					return true;
-				}
-			}
-			return false;
+			var baseClass = derivedClass.BaseClass();
+			return baseClass != null && (baseClass.GetDefinition() == definition || baseClass.Kind == TypeKind.Class && HasBaseClass(baseClass, definition));
 		}
 
 		private static bool IsContainedBy(IType nestedClass, IType definition)
@@ -225,6 +222,7 @@ namespace MiniSharp
 		private void EmitTypes()
 		{
 			foreach (var type in types) {
+				currentType = type;
 				switch (type.Kind) {
 					case TypeKind.Enum: {
 						var isFirst = true;
@@ -298,9 +296,8 @@ namespace MiniSharp
 		private void EmitMethod(ITypeDefinition type, IMethod method, bool isPrimaryConstructor)
 		{
 			var isFunctionExpression = true;
-			EmitNewlineBeforeDefinition();
-
 			BlockStatement body = null;
+			ConstructorInitializer initializer = null;
 			AstNodeCollection<ParameterDeclaration> parameters = null;
 			MethodDeclaration methodParent;
 			OperatorDeclaration operatorParent;
@@ -312,11 +309,19 @@ namespace MiniSharp
 			} else if (input.constructors.TryGetValue(method, out constructorParent)) {
 				body = constructorParent.Body;
 				parameters = constructorParent.Parameters;
+				initializer = constructorParent.Initializer;
 			} else if (input.operators.TryGetValue(method, out operatorParent)) {
 				body = operatorParent.Body;
 				parameters = operatorParent.Parameters;
 			}
 
+			// Ignore abstract methods
+			if (body == null) {
+				return;
+			}
+
+			// Start the declaration
+			EmitNewlineBeforeDefinition();
 			if (isPrimaryConstructor) {
 				if (input.IsTopLevel(type)) {
 					Emit(indent + "function " + type.Name + "(");
@@ -332,31 +337,41 @@ namespace MiniSharp
 			}
 			Emit(")");
 
-			if (body != null) {
-				EmitNewlineBefore(body);
-				body.AcceptVisitor(statementVisitor);
-			} else {
-				EmitIndent();
-				Emit("{" + newline + indent + "}");
+			// Emit the body
+			EmitNewlineBefore(body);
+			EmitIndent();
+			AddMapping(body);
+			Emit("{");
+			var old = builder.Length;
+			IncreaseIndent();
+			if (initializer != null && !initializer.IsNull) {
+				Emit(newline);
+				initializer.AcceptVisitor(statementVisitor);
 			}
-
+			foreach (var node in body.Children) {
+				node.AcceptVisitor(statementVisitor);
+			}
+			DecreaseIndent();
+			if (builder.Length != old) {
+				EmitIndent();
+			}
+			Emit("}");
+			shouldEmitSemicolon = false;
 			Emit(isFunctionExpression ? ";" + newline : newline);
 			shouldEmitNewline = true;
 
 			// Emit some code to extend the prototype
 			if (method.SymbolKind == SymbolKind.Constructor) {
-				foreach (var baseType in type.DirectBaseTypes) {
-					if (baseType.Kind == TypeKind.Class) {
-						EmitNewlineBeforeDefinition();
-						EmitIndent();
-						if (isPrimaryConstructor) {
-							Emit(type.FullName + ".prototype" + space + '=' + space + "Object.create(" + baseType.FullName + ".prototype);" + newline);
-						} else {
-							Emit(method.FullName + ".prototype" + space + '=' + space + type.FullName + ".prototype;" + newline);
-						}
-						shouldEmitNewline = true;
-						break;
+				var baseClass = type.BaseClass();
+				if (baseClass != null) {
+					EmitNewlineBeforeDefinition();
+					EmitIndent();
+					if (isPrimaryConstructor) {
+						Emit(type.FullName + ".prototype" + space + '=' + space + "Object.create(" + baseClass.FullName + ".prototype);" + newline);
+					} else {
+						Emit(method.FullName + ".prototype" + space + '=' + space + type.FullName + ".prototype;" + newline);
 					}
+					shouldEmitNewline = true;
 				}
 			}
 		}
@@ -844,6 +859,27 @@ namespace MiniSharp
 				context.EmitNewlineBefore(node.Body);
 				node.Body.AcceptVisitor(this);
 			}
+
+			public override void VisitConstructorInitializer(ConstructorInitializer node)
+			{
+				var baseClass = context.currentType.BaseClass();
+				if (baseClass == null) {
+					return;
+				}
+				context.EmitIndent();
+				context.AddMapping(node);
+				context.Emit(baseClass.FullName + ".call");
+				context.IncreaseIndent();
+				context.Emit("(this");
+				foreach (var argument in node.Arguments) {
+					context.Emit(",");
+					context.EmitWhitespaceBeforeChild(node, argument, Previous.Other);
+					argument.AcceptVisitor(context.expressionVisitor, Precedence.Comma);
+				}
+				context.Emit(")");
+				context.DecreaseIndent();
+				context.EmitSemicolonAfterStatement();
+			}
 		}
 
 		// https://msdn.microsoft.com/en-us/library/aa691323.aspx
@@ -1140,51 +1176,6 @@ namespace MiniSharp
 				node.Expression.AcceptVisitor(this, context.ShouldMinify ? precedence : Precedence.Primary);
 				return null;
 			}
-		}
-	}
-
-	public enum QuoteStyle
-	{
-		Double,
-		Single,
-		SingleOrDouble,
-	}
-
-	public static partial class Globals
-	{
-		public static string Quote(this string text, QuoteStyle style)
-		{
-			// Use whichever quote character is less frequent
-			if (style == QuoteStyle.SingleOrDouble) {
-				var singleQuotes = 0;
-				var doubleQuotes = 0;
-				foreach (var c in text) {
-					if (c == '"') doubleQuotes++;
-					else if (c == '\'') singleQuotes++;
-				}
-				style = singleQuotes <= doubleQuotes ? QuoteStyle.Single : QuoteStyle.Double;
-			}
-
-			// Generate the string using substrings of unquoted stuff for speed
-			var quote = style == QuoteStyle.Single ? "'" : "\"";
-			var builder = new StringBuilder();
-			var start = 0;
-			builder.Append(quote);
-			for (var i = 0; i < text.Length; i++) {
-				var c = text[i];
-				string escape;
-				if (c == quote[0]) escape = "\\" + quote;
-				else if (c == '\\') escape = "\\\\";
-				else if (c == '\t') escape = "\\t";
-				else if (c == '\n') escape = "\\n";
-				else continue;
-				builder.Append(text.Substring(start, i - start));
-				builder.Append(escape);
-				start = i + 1;
-			}
-			builder.Append(text.Substring(start));
-			builder.Append(quote);
-			return builder.ToString();
 		}
 	}
 }

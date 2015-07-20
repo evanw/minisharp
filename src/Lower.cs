@@ -92,16 +92,6 @@ namespace MiniSharp
 			return false;
 		}
 
-		private static bool HasBaseClass(IType type)
-		{
-			foreach (var baseType in type.DirectBaseTypes) {
-				if (baseType.Kind == TypeKind.Class) {
-					return true;
-				}
-			}
-			return false;
-		}
-
 		private static bool IsIntegerTypeCode(KnownTypeCode code)
 		{
 			switch (code) {
@@ -162,61 +152,37 @@ namespace MiniSharp
 			return new IdentifierExpression(symbol.Name);
 		}
 
-		private void InsertStuffIntoConstructorBody(IType type, ConstructorDeclaration declaration)
+		private void InsertFieldInitializersIntoConstructorBody(IType type, ConstructorDeclaration declaration)
 		{
-			var body = declaration.Body;
-			var isEmpty = body.Statements.Count == 0;
-			var insertBefore = body.LBraceToken.NextSibling ?? body.FirstChild;
-			var shouldInsertNewlines = isEmpty || insertBefore is NewLineNode;
-
-			// Lower the ": base()" or ": this()" expression into the constructor body
-			var initializer = declaration.Initializer;
-			var isForward = initializer.ConstructorInitializerType == ConstructorInitializerType.This;
-			if (!initializer.IsNull) {
-				var arguments = new List<Expression>(initializer.Arguments);
-				foreach (var argument in arguments) {
-					argument.Remove();
-				}
-
-				// Add an invocation inside the constructor body
-				var target = isForward ? (Expression)new ThisReferenceExpression() : new BaseReferenceExpression();
-				if (shouldInsertNewlines) {
-					body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
-				}
-				body.InsertChildBefore(insertBefore, new InvocationExpression(target, arguments), BlockStatement.StatementRole);
-			}
-
 			// For constructor forwarding, the base class initializer and all field initializers are in the other constructor
-			if (!isForward) {
-				foreach (var field in type.GetFields(null, GetMemberOptions.IgnoreInheritedMembers)) {
-					VariableInitializer variable;
-					Expression value;
-
-					// Ignore non-instance fields
-					if (field.IsStatic || !context.fields.TryGetValue(field, out variable)) {
-						continue;
-					}
-
-					// Use the initializer if present
-					if (variable.Initializer.IsNull) {
-						value = CreateDefaultValue(field.Type);
-					} else {
-						value = variable.Initializer.Clone();
-					}
-
-					// Add an assignment inside the constructor body
-					if (shouldInsertNewlines) {
-						body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
-					}
-					body.InsertChildBefore(insertBefore, new ExpressionStatement(new AssignmentExpression(
-						new MemberReferenceExpression(new ThisReferenceExpression(),
-							field.Name), value)), BlockStatement.StatementRole);
-				}
+			if (declaration.Initializer.ConstructorInitializerType == ConstructorInitializerType.This) {
+				return;
 			}
 
-			// Make sure empty bodies have a newline after the last statement
-			if (isEmpty) {
+			var body = declaration.Body;
+			var insertBefore = body.FirstChild;
+
+			foreach (var field in type.GetFields(null, GetMemberOptions.IgnoreInheritedMembers)) {
+				VariableInitializer variable;
+				Expression value;
+
+				// Ignore non-instance fields
+				if (field.IsStatic || !context.fields.TryGetValue(field, out variable)) {
+					continue;
+				}
+
+				// Use the initializer if present
+				if (variable.Initializer.IsNull) {
+					value = CreateDefaultValue(field.Type);
+				} else {
+					value = variable.Initializer.Clone();
+				}
+
+				// Add an assignment inside the constructor body
 				body.InsertChildBefore(insertBefore, new NewLineNode(), Roles.NewLine);
+				body.InsertChildBefore(insertBefore, new ExpressionStatement(new AssignmentExpression(
+					new MemberReferenceExpression(new ThisReferenceExpression(),
+						field.Name), value)), BlockStatement.StatementRole);
 			}
 		}
 
@@ -583,14 +549,15 @@ namespace MiniSharp
 					// Add the declaration to the tree so it will be emitted
 					var declaration = new ConstructorDeclaration();
 					var body = new BlockStatement();
-					if (HasBaseClass(result.Type)) {
+					if (result.Type.BaseClass() != null) {
 						var initializer = new ConstructorInitializer();
 						initializer.ConstructorInitializerType = ConstructorInitializerType.Base;
 						declaration.Initializer = initializer;
 					}
 					declaration.Name = result.Type.Name;
 					declaration.Body = body;
-					InsertStuffIntoConstructorBody(result.Type, declaration);
+					body.InsertChildAfter(null, new NewLineNode(), Roles.NewLine);
+					InsertFieldInitializersIntoConstructorBody(result.Type, declaration);
 					node.AddChild(declaration, Roles.TypeMemberRole);
 					context.constructors[method] = declaration;
 				}
@@ -773,7 +740,7 @@ namespace MiniSharp
 
 			var result = resolver.Resolve(node) as MemberResolveResult;
 			if (result != null) {
-				InsertStuffIntoConstructorBody(result.Member.DeclaringType, node);
+				InsertFieldInitializersIntoConstructorBody(result.Member.DeclaringType, node);
 			}
 		}
 
