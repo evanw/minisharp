@@ -144,7 +144,10 @@ namespace MiniSharp
 				var buffer = Encoding.UTF8.GetBytes(responseText);
 				response.Headers["Access-Control-Allow-Origin"] = "*";
 				response.ContentLength64 = buffer.Length;
-				response.OutputStream.Write(buffer, 0, buffer.Length);
+				try {
+					response.OutputStream.Write(buffer, 0, buffer.Length);
+				} catch (IOException) {
+				}
 				response.OutputStream.Close();
 			}
 		}

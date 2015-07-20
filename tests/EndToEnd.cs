@@ -277,5 +277,43 @@ class Base {}
 })();
 ");
 		}
+
+		[Test]
+		public void DerivedClassAfterGeneric()
+		{
+			Check(
+@"class Base<T> {}
+class Derived : Base<int> {}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+})();
+");
+		}
+
+		[Test]
+		public void DerivedClassBeforeGeneric()
+		{
+			Check(
+@"class Derived : Base<int> {}
+class Base<T> {}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+})();
+");
+		}
 	}
 }

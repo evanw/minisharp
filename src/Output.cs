@@ -131,10 +131,10 @@ namespace MiniSharp
 			}
 		}
 
-		private static bool HasBaseClass(IType derivedClass, IType baseClass)
+		private static bool HasBaseClass(IType derivedClass, IType definition)
 		{
 			foreach (var type in derivedClass.DirectBaseTypes) {
-				if (type == baseClass || type.Kind == TypeKind.Class && HasBaseClass(type, baseClass)) {
+				if (type.GetDefinition() == definition || type.Kind == TypeKind.Class && HasBaseClass(type, definition)) {
 					return true;
 				}
 			}
@@ -143,8 +143,11 @@ namespace MiniSharp
 
 		private static bool TypeComesBefore(IType before, IType after)
 		{
-			if (before.Kind == TypeKind.Class && after.Kind == TypeKind.Class && HasBaseClass(after, before)) {
-				return true;
+			if (before.Kind == TypeKind.Class && after.Kind == TypeKind.Class) {
+				var definition = before.GetDefinition();
+				if (definition != null) {
+					return HasBaseClass(after, definition);
+				}
 			}
 			return false;
 		}
