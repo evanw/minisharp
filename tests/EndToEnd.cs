@@ -315,5 +315,55 @@ class Base<T> {}
 })();
 ");
 		}
+
+		[Test]
+		public void DerivedClassAfterNested()
+		{
+			Check(
+@"public class Base {}
+
+public class Derived : Base {
+	public class Nested {}
+}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+
+	Derived.Nested = function() {
+	};
+})();
+");
+		}
+
+		[Test]
+		public void DerivedClassBeforeNested()
+		{
+			Check(
+@"public class Derived : Base {
+	public class Nested {}
+}
+
+public class Base {}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+
+	Derived.Nested = function() {
+	};
+})();
+");
+		}
 	}
 }

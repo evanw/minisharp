@@ -141,12 +141,19 @@ namespace MiniSharp
 			return false;
 		}
 
+		private static bool IsContainedBy(IType nestedClass, IType definition)
+		{
+			var type = nestedClass.DeclaringType;
+			return type != null && (type.GetDefinition() == definition || IsContainedBy(type, definition));
+		}
+
 		private static bool TypeComesBefore(IType before, IType after)
 		{
-			if (before.Kind == TypeKind.Class && after.Kind == TypeKind.Class) {
+			// Uses GetDefinition() so this also works on generic types
+			if (after.Kind == TypeKind.Class) {
 				var definition = before.GetDefinition();
 				if (definition != null) {
-					return HasBaseClass(after, definition);
+					return before.Kind == TypeKind.Class && HasBaseClass(after, definition) || IsContainedBy(after, definition);
 				}
 			}
 			return false;
