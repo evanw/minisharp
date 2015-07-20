@@ -67,6 +67,9 @@ namespace MiniSharp
 						variable.Remove();
 						previous.Variables.Add(variable);
 					}
+					if (node.PrevSibling is NewLineNode) {
+						node.PrevSibling.Remove();
+					}
 					node.Remove();
 				}
 				return;

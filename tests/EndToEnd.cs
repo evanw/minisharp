@@ -239,5 +239,43 @@ enum Foo {}
 })();
 ");
 		}
+
+		[Test]
+		public void DerivedClassAfter()
+		{
+			Check(
+@"class Base {}
+class Derived : Base {}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+})();
+");
+		}
+
+		[Test]
+		public void DerivedClassBefore()
+		{
+			Check(
+@"class Derived : Base {}
+class Base {}
+", @"(function() {
+	function Base() {
+	}
+
+	function Derived() {
+		Base.call(this);
+	}
+
+	Derived.prototype = Object.create(Base.prototype);
+})();
+");
+		}
 	}
 }

@@ -92,7 +92,17 @@ namespace MiniSharp
 			return false;
 		}
 
-		private bool IsIntegerTypeCode(KnownTypeCode code)
+		private static bool HasBaseClass(IType type)
+		{
+			foreach (var baseType in type.DirectBaseTypes) {
+				if (baseType.Kind == TypeKind.Class) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private static bool IsIntegerTypeCode(KnownTypeCode code)
 		{
 			switch (code) {
 				case KnownTypeCode.Char:
@@ -111,7 +121,7 @@ namespace MiniSharp
 			return false;
 		}
 
-		private bool IsFloatingPointTypeCode(KnownTypeCode code)
+		private static bool IsFloatingPointTypeCode(KnownTypeCode code)
 		{
 			return code == KnownTypeCode.Single || code == KnownTypeCode.Double;
 		}
@@ -573,6 +583,11 @@ namespace MiniSharp
 					// Add the declaration to the tree so it will be emitted
 					var declaration = new ConstructorDeclaration();
 					var body = new BlockStatement();
+					if (HasBaseClass(result.Type)) {
+						var initializer = new ConstructorInitializer();
+						initializer.ConstructorInitializerType = ConstructorInitializerType.Base;
+						declaration.Initializer = initializer;
+					}
 					declaration.Name = result.Type.Name;
 					declaration.Body = body;
 					InsertStuffIntoConstructorBody(result.Type, declaration);

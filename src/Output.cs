@@ -131,9 +131,55 @@ namespace MiniSharp
 			}
 		}
 
+		private static bool HasBaseClass(IType derivedClass, IType baseClass)
+		{
+			foreach (var type in derivedClass.DirectBaseTypes) {
+				if (type == baseClass || type.Kind == TypeKind.Class && HasBaseClass(type, baseClass)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private static bool TypeComesBefore(IType before, IType after)
+		{
+			if (before.Kind == TypeKind.Class && after.Kind == TypeKind.Class && HasBaseClass(after, before)) {
+				return true;
+			}
+			return false;
+		}
+
 		private void SortTypes()
 		{
-			// TODO
+			// Sort by inheritance and containment
+			for (var i = 0; i < types.Count; i++) {
+				var j = i;
+
+				// Select an object that comes before all other types
+				while (j < types.Count) {
+					var symbol = types[j];
+					var k = i;
+
+					// Check to see if this comes before all other types
+					while (k < types.Count) {
+						if (j != k && TypeComesBefore(types[k], symbol)) {
+							break;
+						}
+						k++;
+					}
+					if (k == types.Count) {
+						break;
+					}
+					j++;
+				}
+
+				// Swap the object into the correct order
+				if (j < types.Count) {
+					var temp = types[i];
+					types[i] = types[j];
+					types[j] = temp;
+				}
+			}
 		}
 
 		private void AddMapping(AstNode node)
